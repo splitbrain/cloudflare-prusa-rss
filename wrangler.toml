@@ -1,0 +1,6 @@
+name = "prusa-rss"
+type = "webpack"
+account_id = "473651e4463a25a3796bf95e077e67bb"
+workers_dev = true
+route = ""
+zone_id = ""
