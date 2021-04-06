@@ -48,7 +48,13 @@ async function handleRequest(request) {
         });
     });
 
-    return new Response(feed.rss2(), {headers: {"Content-Type": "application/xml+rss"}})
+    return new Response(feed.rss2(), {
+        status: 200,
+        statusText: 'ok',
+        headers: {
+            "Content-Type": "application/rss+xml"
+        }
+    });
 }
 
 function createFeed() {
