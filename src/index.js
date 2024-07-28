@@ -24,71 +24,16 @@ async function handleRequest(request) {
     // The user ID to query
     const USER = 965;
 
+    let data;
+    if(new URL(request.url).pathname == '/makes') {
+        data = getMakesGQL(USER);
+    } else {
+        data = getModelsGQL(USER);
+    }
+
     // query the data
     const address = 'https://api.printables.com/graphql/';
-    const data = {
-        "operationName": "UserModels",
-        "variables": {
-            "userId": "965",
-            "ordering": "-first_publish",
-            "paid": "free",
-            "limit": 36,
-            "cursor": null
-        },
-        "query": `query
-         UserModels(
-            $userId: ID!,
-            $ordering: String,
-            $query: String,
-            $paid: PaidEnum!,
-            $limit: Int!,
-            $cursor: String,
-            $excludedIds: [ID]) {
-                userModels(
-                    userId: $userId
-                    ordering: $ordering
-                    query: $query
-                    paid: $paid
-                    limit: $limit
-                    cursor: $cursor
-                    excludedIds: $excludedIds
-                ) {
-                    cursor
-                    items {
-                          ...PrintListFragment
-                          __typename
-                    }
-                    __typename
-                }
-            }
 
-            fragment PrintListFragment on PrintType {
-                id
-                name
-                slug
-                firstPublish
-                user {
-                    ...AvatarUserFragment
-                    __typename
-                }
-                __typename
-            }
-
-            fragment AvatarUserFragment on UserType {
-                id
-                publicUsername
-                avatarFilePath
-                handle
-                company
-                verified
-                badgesProfileLevel {
-                    profileLevel
-                    __typename
-                }
-                __typename
-            }
-        `
-    };
 
     // fetch data
     const response = await fetch(address, {
@@ -100,15 +45,29 @@ async function handleRequest(request) {
         body: JSON.stringify(data)
     });
     const rdata = await response.json();
+    const rlist = rdata.data.userModels ? rdata.data.userModels.items : rdata.data.items;
 
     // build the feed
-    const feed = createFeed(rdata.data.userModels.items[0].user);
-    rdata.data.userModels.items.map(print => {
+    const feed = createFeed(rlist[0].user, !!rlist[0].print);
+    rlist.map(item => {
+        let title, description, link;
+        if(item.print) {
+            // this is a make
+            title = `${item.print.name} by ${item.print.user.publicUsername}`;
+            description = item.print.summary;
+            link = `https://www.printables.com/model/${item.print.id}-${item.print.slug}/comments/${item.id}`;
+        } else {
+            // this is a model
+            title = item.name;
+            description = item.summary;
+            link = `https://www.printables.com/model/${item.id}-${item.slug}`;
+        }
+
         feed.addItem({
-            title: print.name,
-            link: `https://www.printables.com/model/${print.id}-${print.slug}`,
-            description: print.summary,
-            date: new Date(print.firstPublish)
+            title: title,
+            link: link,
+            description: description,
+            date: new Date(item.firstPublish)
         });
     });
 
@@ -121,11 +80,113 @@ async function handleRequest(request) {
     });
 }
 
-function createFeed(user) {
+/**
+ * Create the feed object
+ * @param {object} user The user info as returned from the API
+ * @returns {Feed}
+ */
+function createFeed(user, isMake) {
     return new Feed({
         title: `Printables.com - ${user.publicUsername}`,
-        description: "Newest 3D Models",
-        link: `https://www.printables.com/@${user.handle}/models`,
+        description: isMake ? "Recent Makes" :  "Newest 3D Models",
+        link: `https://www.printables.com/@${user.handle}/` + (isMake ? "makes" : "models"),
         language: "en",
     });
+}
+
+/**
+ * Get the GraphQL query data to retrieve the user's models
+ *
+ * @param int userID
+ * @returns {object}
+ */
+function getModelsGQL(userID) {
+    return {
+        "operationName": "UserModels",
+        "variables": {
+            "userId": userID,
+            "ordering": "-first_publish",
+            "paid": "free",
+            "limit": 36,
+            "cursor": null
+        },
+        "query": `query
+            UserModels(
+                $userId: ID!,
+                $ordering: String,
+                $limit: Int!
+            ) {
+                userModels(
+                    userId: $userId
+                    ordering: $ordering
+                    limit: $limit
+                ) {
+                    items {
+                      id
+                      name
+                      slug
+                      summary
+                      firstPublish
+
+                      user {
+                        id
+                        publicUsername
+                        handle
+                      }
+                    }
+                }
+            }
+        `
+    };
+}
+
+/**
+ * Get the GraphQL query data to retrieve the user's makes
+ *
+ * @param int userID
+ * @returns {object}
+ */
+function getMakesGQL(userID) {
+    return {
+        "operationName": "PrintSocialMakes",
+        "variables": {
+            "userId": userID,
+            "limit": 36,
+        },
+        "query": `query
+            PrintSocialMakes(
+                $userId: ID!,
+                $limit: Int,
+            ){
+                items: printComments(
+                    userId: $userId
+                    limit: $limit
+                    makesOnly: true
+                    ordering: {
+                        orderBy: newest_parent,
+                        sortOrder: descending
+                    }
+                ) {
+                    id
+                    firstPublish: created
+                    user: author {
+                        id
+                        publicUsername
+                        handle
+                    }
+                    print {
+                      id
+                      name
+                      slug
+                      summary
+                      user {
+                        id
+                        publicUsername
+                        handle
+                      }
+                    }
+                }
+            }
+`
+    }
 }
